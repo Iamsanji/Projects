@@ -1,0 +1,46 @@
+name: Build Android APK
+on:
+  workflow_dispatch:
+
+jobs:
+  build-apk:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-linux-android, armv7-linux-androideabi, x86_64-linux-android, i686-linux-android
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'zulu'
+          java-version: '17'
+
+      - name: Install Dependencies and Build
+        run: |
+          cd bmi-calculator
+          npm install
+          npx vite build
+
+      - name: Init and Build Android APK
+        run: |
+          cd bmi-calculator
+          yes | npx tauri android init
+          npx tauri android build --apk
+        env:
+          ANDROID_HOME: /usr/local/lib/android/sdk
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: bmi-calculator-mobile-app
+          path: bmi-calculator/src-tauri/gen/android/app/build/outputs/apk/**/release/*.apk
