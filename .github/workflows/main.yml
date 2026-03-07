@@ -29,7 +29,7 @@ jobs:
         run: |
           cd bmi-calculator
           npm install
-          npm run build
+          npx vite build
 
       - name: Init and Build Android APK
         run: |
