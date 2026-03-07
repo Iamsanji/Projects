@@ -25,10 +25,11 @@ jobs:
           distribution: 'zulu'
           java-version: '17'
 
-      - name: Install Dependencies
+      - name: Install Dependencies and Build
         run: |
           cd bmi-calculator
           npm install
+          npm run build
 
       - name: Init and Build Android APK
         run: |
