@@ -1,6 +1,6 @@
 name: Build Android APK
 on:
-  workflow_dispatch: # Allows you to manually trigger the build from GitHub
+  workflow_dispatch:
 
 jobs:
   build-apk:
@@ -26,10 +26,13 @@ jobs:
           java-version: '17'
 
       - name: Install Dependencies
-        run: npm install
+        run: |
+          cd bmi-calculator
+          npm install
 
       - name: Init and Build Android APK
         run: |
+          cd bmi-calculator
           npx tauri android init
           npx tauri android build --apk
         env:
@@ -40,4 +43,4 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: bmi-calculator-mobile-app
-          path: src-tauri/gen/android/app/build/outputs/apk/**/release/*.apk
+          path: bmi-calculator/src-tauri/gen/android/app/build/outputs/apk/**/release/*.apk
