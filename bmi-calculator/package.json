@@ -4,9 +4,9 @@
   "version": "0.1.0",
   "type": "module",
   "scripts": {
-  "dev": ".\\node_modules\\.bin\\vite",
-  "build": ".\\node_modules\\.bin\\vite build",
-  "tauri": ".\\node_modules\\.bin\\tauri"
+    "dev": "vite",
+    "build": "vite build",
+    "tauri": "tauri"
   },
   "dependencies": {
     "@tauri-apps/api": "^2",
