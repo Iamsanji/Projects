@@ -1,6 +1,61 @@
 import { useState, useEffect, useMemo, useRef } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import {
+  isPermissionGranted as isTauriNotificationPermissionGranted,
+  requestPermission as requestTauriNotificationPermission,
+  sendNotification as sendTauriNotification,
+} from "@tauri-apps/plugin-notification";
 import "./App.css";
+
+const showDevNotificationTest = Boolean(import.meta.env.DEV);
+
+async function requestNotificationPermission() {
+  // Prefer Tauri notifications for packaged desktop/mobile apps.
+  try {
+    let granted = await isTauriNotificationPermissionGranted();
+    if (!granted) {
+      const permission = await requestTauriNotificationPermission();
+      granted = permission === "granted";
+    }
+    if (granted) return true;
+  } catch {
+    // Fall through to Web Notification API.
+  }
+
+  if (typeof Notification !== "undefined") {
+    if (Notification.permission === "granted") return true;
+    if (Notification.permission === "default") {
+      try {
+        const permission = await Notification.requestPermission();
+        return permission === "granted";
+      } catch {
+        return false;
+      }
+    }
+  }
+
+  return false;
+}
+
+async function sendBmiReminderNotification(title, body) {
+  try {
+    await sendTauriNotification({ title, body });
+    return true;
+  } catch {
+    // Fall back when plugin call is unavailable.
+  }
+
+  if (typeof Notification !== "undefined" && Notification.permission === "granted") {
+    try {
+      new Notification(title, { body });
+      return true;
+    } catch {
+      // Ignore local notification failures.
+    }
+  }
+
+  return false;
+}
 
 function getInitials(name) {
   const parts = (name || "").trim().split(/\s+/).filter(Boolean);
@@ -558,9 +613,9 @@ function App() {
   }, [hasLogToday]);
 
   useEffect(() => {
-    if (!activeProfileId || !reminder.enabled || hasLogToday) return;
+    if (!activeProfileId || !reminder.enabled) return;
 
-    const tick = () => {
+    const tick = async () => {
       const now = new Date();
       const today = now.toISOString().slice(0, 10);
       const [h, m] = reminder.time.split(":").map((v) => parseInt(v, 10));
@@ -568,13 +623,14 @@ function App() {
       due.setHours(isNaN(h) ? 20 : h, isNaN(m) ? 0 : m, 0, 0);
 
       if (now >= due && reminder.lastNotified !== today) {
-        setShowReminderBanner(true);
-        setReminder((prev) => ({ ...prev, lastNotified: today }));
+        const sent = await sendBmiReminderNotification(
+          "BMI Check-In",
+          `Hi ${activeProfile?.name || "there"}, it is time to log today's health check.`
+        );
 
-        if (typeof Notification !== "undefined" && Notification.permission === "granted") {
-          new Notification("BMI Check-In", {
-            body: `Hi ${activeProfile?.name || "there"}, it is time to log today\'s health check.`,
-          });
+        if (sent) {
+          setShowReminderBanner(true);
+          setReminder((prev) => ({ ...prev, lastNotified: today }));
         }
       }
     };
@@ -582,7 +638,18 @@ function App() {
     tick();
     const interval = setInterval(tick, 60000);
     return () => clearInterval(interval);
-  }, [activeProfileId, reminder.enabled, reminder.time, reminder.lastNotified, hasLogToday, activeProfile?.name]);
+  }, [activeProfileId, reminder.enabled, reminder.time, reminder.lastNotified, activeProfile?.name]);
+
+  async function sendTestReminderNotification() {
+    await requestNotificationPermission();
+    const sent = await sendBmiReminderNotification(
+      "BMI Check-In Test",
+      `Test reminder for ${activeProfile?.name || "you"}. Notifications are working.`
+    );
+    if (!sent) {
+      setError("Could not send a notification. Check OS notification permissions for this app.");
+    }
+  }
 
   function setTargetWeight(value) {
     if (!activeProfileId) return;
@@ -1330,11 +1397,16 @@ function App() {
                       type="checkbox"
                       className="sr-only"
                       checked={reminder.enabled}
-                      onChange={(e) => {
+                      onChange={async (e) => {
                         const enabled = e.target.checked;
-                        setReminder((prev) => ({ ...prev, enabled }));
-                        if (enabled && typeof Notification !== "undefined" && Notification.permission === "default") {
-                          Notification.requestPermission().catch(() => {});
+                        setReminder((prev) => ({
+                          ...prev,
+                          enabled,
+                          // Reset daily lock so users can test immediately after enabling.
+                          lastNotified: enabled ? "" : prev.lastNotified,
+                        }));
+                        if (enabled) {
+                          await requestNotificationPermission();
                         }
                       }}
                     />
@@ -1346,13 +1418,29 @@ function App() {
                 <input
                   type="time"
                   value={reminder.time}
-                  onChange={(e) => setReminder((prev) => ({ ...prev, time: e.target.value }))}
+                  onChange={(e) =>
+                    setReminder((prev) => ({
+                      ...prev,
+                      time: e.target.value,
+                      // Allow trigger again for newly selected time.
+                      lastNotified: "",
+                    }))
+                  }
                   className="mt-2 w-full bg-slate-900/40 border border-slate-700 rounded-lg px-2 py-1 text-xs text-slate-200"
                 />
+                {showDevNotificationTest && (
+                  <button
+                    type="button"
+                    onClick={sendTestReminderNotification}
+                    className="mt-2 w-full text-[10px] uppercase tracking-wider text-slate-200 bg-slate-700/60 hover:bg-slate-600/70 border border-slate-600 rounded-lg px-2 py-1.5"
+                  >
+                    Test Notification
+                  </button>
+                )}
               </div>
             </div>
 
-            {showReminderBanner && !hasLogToday && (
+            {showReminderBanner && (
               <div className="mb-3 bg-amber-500/10 border border-amber-500/30 rounded-xl px-3 py-2 text-xs text-amber-300 flex items-center justify-between gap-2">
                 <span>It is check-in time. Log today\'s BMI to keep your streak alive.</span>
                 <button

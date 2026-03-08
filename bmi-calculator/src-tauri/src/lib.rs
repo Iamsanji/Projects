@@ -332,6 +332,7 @@ fn update_history_entry(app_handle: tauri::AppHandle, updated_entry: BmiHistoryE
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_notification::init())
         .invoke_handler(tauri::generate_handler![
             calculate_bmi,
             save_history,
