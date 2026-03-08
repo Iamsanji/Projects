@@ -18,7 +18,15 @@ pub struct BmiResult {
 #[derive(Serialize, Deserialize, Clone)]
 pub struct BmiHistoryEntry {
     date: String,
+    #[serde(default)]
+    entry_id: String,
+    #[serde(default)]
+    profile_id: String,
     name: String,
+    #[serde(default)]
+    gender: String,
+    #[serde(default)]
+    age: u32,
     bmi: f64,
     category: String,
     weight: f64,
@@ -223,6 +231,10 @@ fn save_history(app_handle: tauri::AppHandle, entry: BmiHistoryEntry) -> Result<
         HistoryData { entries: vec![] }
     };
 
+    let mut entry = entry;
+    if entry.entry_id.is_empty() {
+        entry.entry_id = entry.date.clone();
+    }
     data.entries.push(entry);
 
     // Keep only the last 50 entries
@@ -257,11 +269,78 @@ fn clear_history(app_handle: tauri::AppHandle) -> Result<(), String> {
     Ok(())
 }
 
+#[tauri::command]
+fn clear_profile_history(app_handle: tauri::AppHandle, profile_id: String) -> Result<(), String> {
+    let path = get_history_path(&app_handle);
+    if !path.exists() {
+        return Ok(());
+    }
+
+    let content = fs::read_to_string(&path).map_err(|e| e.to_string())?;
+    let mut data = serde_json::from_str::<HistoryData>(&content).unwrap_or(HistoryData { entries: vec![] });
+
+    // Keep entries that do not belong to the profile being cleared.
+    data.entries.retain(|entry| entry.profile_id != profile_id);
+
+    let json = serde_json::to_string_pretty(&data).map_err(|e| e.to_string())?;
+    fs::write(&path, json).map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+#[tauri::command]
+fn delete_history_entry(app_handle: tauri::AppHandle, entry_id: String) -> Result<(), String> {
+    let path = get_history_path(&app_handle);
+    if !path.exists() {
+        return Ok(());
+    }
+
+    let content = fs::read_to_string(&path).map_err(|e| e.to_string())?;
+    let mut data = serde_json::from_str::<HistoryData>(&content).unwrap_or(HistoryData { entries: vec![] });
+    data.entries.retain(|entry| entry.entry_id != entry_id);
+
+    let json = serde_json::to_string_pretty(&data).map_err(|e| e.to_string())?;
+    fs::write(&path, json).map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+#[tauri::command]
+fn update_history_entry(app_handle: tauri::AppHandle, updated_entry: BmiHistoryEntry) -> Result<(), String> {
+    let path = get_history_path(&app_handle);
+    if !path.exists() {
+        return Err("History file not found.".to_string());
+    }
+
+    let content = fs::read_to_string(&path).map_err(|e| e.to_string())?;
+    let mut data = serde_json::from_str::<HistoryData>(&content).unwrap_or(HistoryData { entries: vec![] });
+
+    if let Some(entry) = data
+        .entries
+        .iter_mut()
+        .find(|entry| entry.entry_id == updated_entry.entry_id)
+    {
+        *entry = updated_entry;
+    } else {
+        return Err("History entry not found.".to_string());
+    }
+
+    let json = serde_json::to_string_pretty(&data).map_err(|e| e.to_string())?;
+    fs::write(&path, json).map_err(|e| e.to_string())?;
+    Ok(())
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
-        .invoke_handler(tauri::generate_handler![calculate_bmi, save_history, load_history, clear_history])
+        .invoke_handler(tauri::generate_handler![
+            calculate_bmi,
+            save_history,
+            load_history,
+            clear_history,
+            clear_profile_history,
+            delete_history_entry,
+            update_history_entry
+        ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }
