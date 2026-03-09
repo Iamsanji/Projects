@@ -1,5 +1,7 @@
 import { useState, useEffect, useMemo, useRef, useCallback } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import { downloadDir, join } from "@tauri-apps/api/path";
+import { writeFile, writeTextFile } from "@tauri-apps/plugin-fs";
 import {
   isPermissionGranted as isTauriNotificationPermissionGranted,
   requestPermission as requestTauriNotificationPermission,
@@ -109,8 +111,8 @@ function AvatarPicker({ avatar, onAvatarChange, label = "Profile photo" }) {
       const s = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "user", width: 320, height: 320 } });
       setStream(s);
       setShowCamera(true);
-    } catch {
-      setCameraError("Camera not available.");
+    } catch (err) {
+      setCameraError(err.message || "Camera not available.");
     }
   }
 
@@ -562,6 +564,7 @@ function App() {
     }
   });
   const [showProfileModal, setShowProfileModal] = useState(false);
+  const [toast, setToast] = useState("");
   const [notesByEntry, setNotesByEntry] = useState(() => {
     try {
       return JSON.parse(localStorage.getItem("bmi_notes") || "{}");
@@ -1061,7 +1064,7 @@ function App() {
     );
   }
 
-  function generatePdfReport() {
+  async function generatePdfReport() {
     const profileName = activeProfile?.name || "User";
     const entries = [...sortedHistory];
     if (entries.length === 0) return;
@@ -1172,13 +1175,44 @@ function App() {
     }
     pdf += `trailer\n<< /Size ${xrefOffsets.length + 1} /Root 1 0 R >>\nstartxref\n${xrefPos}\n%%EOF`;
 
-    const blob = new Blob([pdf], { type: "application/pdf" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `bmi-report-${profileName.replace(/\s+/g, "-").toLowerCase()}.pdf`;
-    a.click();
-    URL.revokeObjectURL(url);
+    const fileName = `bmi-report-${profileName.replace(/\s+/g, "-").toLowerCase()}.pdf`;
+
+    try {
+      // Try using Tauri APIs first to directly save the file
+      let isTauriEnv = false;
+      try {
+        isTauriEnv = Boolean(window.__TAURI_INTERNALS__);
+      } catch (e) {}
+
+      if (isTauriEnv) {
+        const downloadDirPath = await downloadDir();
+        const filePath = await join(downloadDirPath, fileName);
+        
+        // Convert string to Uint8Array for writeFile
+        const uint8Array = new TextEncoder().encode(pdf);
+        await writeFile(filePath, uint8Array);
+        showToast(`PDF saved: Downloads/${fileName}`);
+      } else {
+        // Fallback for standard web browser
+        const blob = new Blob([pdf], { type: "application/pdf" });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = fileName;
+        a.click();
+        URL.revokeObjectURL(url);
+        showToast(`PDF downloaded as ${fileName}`);
+      }
+    } catch (err) {
+      console.error("PDF Save Error:", err);
+      // Tauri often throws raw strings as errors instead of Error objects
+      showToast("Failed to save PDF: " + (err.message || String(err)));
+    }
+  }
+
+  function showToast(msg) {
+    setToast(msg);
+    setTimeout(() => setToast(""), 3000);
   }
 
   const nutrition = useMemo(() => {
@@ -2002,6 +2036,14 @@ function App() {
               Close
             </button>
           </div>
+        </div>
+      )}
+      {toast && (
+        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 bg-slate-800/95 backdrop-blur-xl border border-slate-600/50 rounded-xl px-4 py-2.5 shadow-2xl animate-fade-in">
+          <p className="text-sm text-slate-100 flex items-center gap-2">
+            <span className="text-emerald-400">✓</span>
+            {toast}
+          </p>
         </div>
       )}
     </div>

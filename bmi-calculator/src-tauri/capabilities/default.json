@@ -5,7 +5,15 @@
   "windows": ["main"],
   "permissions": [
     "core:default",
+    "core:path:default",
     "opener:default",
-    "notification:default"
+    "notification:default",
+    "fs:default",
+    "fs:allow-write-file",
+    "fs:allow-download-write",
+    {
+      "identifier": "fs:allow-write",
+      "allow": [{ "path": "$DOWNLOAD/**" }]
+    }
   ]
 }
