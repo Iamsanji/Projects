@@ -1,0 +1,67 @@
+# ⚕️ BMI & Health Tracker
+
+A modern, cross-platform Body Mass Index (BMI) calculator and health tracking companion built with [Tauri v2](https://tauri.app/), [React](https://react.dev/), and [Tailwind CSS](https://tailwindcss.com/). It works seamlessly on Desktop (Windows) and Mobile (Android).
+
+## ✨ Features
+
+- **Personalized Health Profiles:** Create multiple user profiles. Set an avatar by picking an image or snapping a photo directly using the **in-app camera**.
+- **Smart BMI Calculation:** Calculates exact BMI based on height, weight, age, and gender, providing a visual gauge.
+- **Tailored Lifestyle Tips:** Don't just get a number! Get specific diet and exercise recommendations dynamically adjusted for children, teens, and adults.
+- **Measurement History:** Keep a running log of your weight journey over time. Add **custom notes** to specific entries (e.g., "Post-holiday weigh-in").
+- **PDF Report Exporting:** Generate and natively save clean, professional PDF reports of your health history directly to your device.
+- **Daily Reminders:** Set up local, per-profile push notifications to remind you to log your weight or exercise.
+- **Cross-Platform:** Employs Rust/Tauri to ensure incredible performance and tiny app sizes across Windows Executables and Android APKs.
+
+## 🛠️ Tech Stack 
+
+- **Frontend:** React.js, Vite, Tailwind CSS
+- **Backend:** Rust, Tauri v2
+- **Key Plugins Used:** 
+  - `@tauri-apps/plugin-fs` & `plugin-dialog` (Cross-platform file saving)
+  - `@tauri-apps/plugin-notification` (Local push notifications)
+  - WebRTC (`getUserMedia`) (Camera integration)
+
+## 🚀 Getting Started
+
+### Prerequisites
+Make sure you have installed:
+- [Node.js](https://nodejs.org/) (v20+)
+- [Rust](https://www.rust-lang.org/)
+- Android Studio / Android SDK (for mobile builds)
+
+### Installation
+1. Clone the repository:
+```bash
+git clone https://github.com/yourusername/bmi-calculator.git
+cd bmi-calculator
+```
+
+2. Install JavaScript dependencies:
+```bash
+npm install
+```
+
+### Running Locally
+
+**For Desktop Preview:**
+```bash
+npx tauri dev
+```
+
+**For Android Preview (Emulator/Device):**
+```bash
+npx tauri android dev
+```
+
+## 📦 Building for Production
+
+This project is configured with GitHub Actions to automate APK building, utilizing an optimized `[profile.release]` constraint to ensure small binary sizes. 
+
+To build manually on your local machine:
+```bash
+# Build Android APK
+npx tauri android build --apk --target aarch64
+
+# Build Desktop Executable
+npx tauri build
+```
