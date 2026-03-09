@@ -2,6 +2,7 @@ import { useState, useEffect, useMemo, useRef, useCallback } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { downloadDir, join } from "@tauri-apps/api/path";
 import { writeFile, writeTextFile } from "@tauri-apps/plugin-fs";
+import { save } from "@tauri-apps/plugin-dialog";
 import {
   isPermissionGranted as isTauriNotificationPermissionGranted,
   requestPermission as requestTauriNotificationPermission,
@@ -1185,13 +1186,21 @@ function App() {
       } catch (e) {}
 
       if (isTauriEnv) {
-        const downloadDirPath = await downloadDir();
-        const filePath = await join(downloadDirPath, fileName);
+        // Use the native dialog so Android's restricted storage system natively handles the file permission
+        const suggestedPath = `${fileName}`;
+        const filePath = await save({
+          title: "Save BMI Report PDF",
+          defaultPath: suggestedPath,
+          filters: [{ name: "PDF Document", extensions: ["pdf"] }],
+        });
         
-        // Convert string to Uint8Array for writeFile
-        const uint8Array = new TextEncoder().encode(pdf);
-        await writeFile(filePath, uint8Array);
-        showToast(`PDF saved: Downloads/${fileName}`);
+        if (filePath) {
+          const uint8Array = new TextEncoder().encode(pdf);
+          await writeFile(filePath, uint8Array);
+          showToast(`PDF saved successfully!`);
+        } else {
+           // User cancelled the dialog manually
+        }
       } else {
         // Fallback for standard web browser
         const blob = new Blob([pdf], { type: "application/pdf" });

@@ -8,6 +8,7 @@
     "core:path:default",
     "opener:default",
     "notification:default",
+    "dialog:default",
     "fs:default",
     "fs:allow-write-file",
     "fs:allow-download-write",
