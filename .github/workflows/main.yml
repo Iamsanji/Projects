@@ -35,7 +35,7 @@ jobs:
         run: |
           cd bmi-calculator
           yes | npx tauri android init
-          npx tauri android build --apk --target aarch64
+          npx tauri android build --apk --target aarch64 --debug
         env:
           ANDROID_HOME: /usr/local/lib/android/sdk
 
@@ -43,4 +43,4 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: bmi-calculator-mobile-app
-          path: bmi-calculator/src-tauri/gen/android/app/build/outputs/apk/**/release/*.apk
+          path: bmi-calculator/src-tauri/gen/android/app/build/outputs/apk/**/debug/*.apk
