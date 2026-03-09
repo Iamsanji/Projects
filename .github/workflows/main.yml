@@ -35,7 +35,7 @@ jobs:
         run: |
           cd bmi-calculator
           yes | npx tauri android init
-          npx tauri android build --apk --target aarch64-linux-android
+          npx tauri android build --apk --target aarch64
         env:
           ANDROID_HOME: /usr/local/lib/android/sdk
 
