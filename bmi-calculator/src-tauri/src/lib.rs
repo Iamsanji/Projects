@@ -32,6 +32,8 @@ pub struct BmiHistoryEntry {
     weight: f64,
     height: f64,
     unit: String,
+    #[serde(default)]
+    notes: String,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -92,18 +94,44 @@ fn get_lifestyle_tips(category: &str, bmi: f64, gender: &str, age: u32) -> Vec<S
 
     // Add age-specific tips
     if age > 0 {
-        if age >= 50 {
-            tips.push("Focus on calcium and vitamin D for bone health.".to_string());
-            tips.push("Include balance and flexibility exercises to prevent falls.".to_string());
+        if age < 10 {
+            tips.push("Encourage active play and limit screen time.".to_string());
+            tips.push("Focus on a balanced diet with fruits, veggies, and whole grains.".to_string());
+        } else if age <= 17 {
+            tips.push("Stay active with sports or outdoor activities you enjoy.".to_string());
+            tips.push("Build healthy habits now — they'll stick with you for life!".to_string());
         } else if age <= 25 {
             tips.push("Build healthy habits now — they'll stick with you for life!".to_string());
+        } else if age >= 65 {
+            tips.push("Focus on calcium and vitamin D for bone health.".to_string());
+            tips.push("Include balance and flexibility exercises to prevent falls.".to_string());
+            tips.push("Stay socially active — it benefits both mental and physical health.".to_string());
+        } else if age >= 50 {
+            tips.push("Focus on calcium and vitamin D for bone health.".to_string());
+            tips.push("Include balance and flexibility exercises to prevent falls.".to_string());
         }
     }
 
-    // Add gender-specific tips
+    // Add gender-specific tips (age-appropriate)
     match gender {
-        "female" => tips.push("Ensure adequate iron intake, especially during menstruation.".to_string()),
-        "male" => tips.push("Include heart-healthy foods — men have higher cardiovascular risk.".to_string()),
+        "female" => {
+            if age >= 12 && age < 55 {
+                tips.push("Ensure adequate iron intake, especially during menstruation.".to_string());
+            } else if age >= 55 {
+                tips.push("Post-menopause: prioritize calcium, vitamin D, and weight-bearing exercise.".to_string());
+            }
+            if age >= 30 {
+                tips.push("Regular breast and reproductive health screenings are important.".to_string());
+            }
+        }
+        "male" => {
+            if age >= 30 {
+                tips.push("Include heart-healthy foods — men have higher cardiovascular risk.".to_string());
+            }
+            if age >= 45 {
+                tips.push("Regular prostate and cardiovascular screenings are recommended.".to_string());
+            }
+        }
         _ => {}
     }
 

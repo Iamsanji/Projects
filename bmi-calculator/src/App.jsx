@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useRef } from "react";
+import { useState, useEffect, useMemo, useRef, useCallback } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import {
   isPermissionGranted as isTauriNotificationPermissionGranted,
@@ -72,6 +72,108 @@ function ProfileAvatar({ profile, className = "w-12 h-12" }) {
   return (
     <div className={`${className} rounded-full bg-gradient-to-br from-indigo-500 to-purple-500 text-white font-semibold border border-indigo-300/40 flex items-center justify-center`}>
       {getInitials(profile?.name)}
+    </div>
+  );
+}
+
+function readFileAsDataUrl(file) {
+  return new Promise((resolve, reject) => {
+    if (!file || !file.type.startsWith("image/")) {
+      reject(new Error("Please select an image file."));
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = () => resolve(typeof reader.result === "string" ? reader.result : "");
+    reader.onerror = () => reject(new Error("Could not read file."));
+    reader.readAsDataURL(file);
+  });
+}
+
+function AvatarPicker({ avatar, onAvatarChange, label = "Profile photo" }) {
+  const fileRef = useRef(null);
+  const videoRef = useRef(null);
+  const [showCamera, setShowCamera] = useState(false);
+  const [stream, setStream] = useState(null);
+  const [cameraError, setCameraError] = useState("");
+
+  function stopStream() {
+    if (stream) {
+      stream.getTracks().forEach((t) => t.stop());
+      setStream(null);
+    }
+  }
+
+  async function openCamera() {
+    setCameraError("");
+    try {
+      const s = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "user", width: 320, height: 320 } });
+      setStream(s);
+      setShowCamera(true);
+    } catch {
+      setCameraError("Camera not available.");
+    }
+  }
+
+  useEffect(() => {
+    if (showCamera && videoRef.current && stream) {
+      videoRef.current.srcObject = stream;
+    }
+  }, [showCamera, stream]);
+
+  function capture() {
+    if (!videoRef.current) return;
+    const canvas = document.createElement("canvas");
+    canvas.width = 320;
+    canvas.height = 320;
+    const ctx = canvas.getContext("2d");
+    const v = videoRef.current;
+    const size = Math.min(v.videoWidth, v.videoHeight);
+    const sx = (v.videoWidth - size) / 2;
+    const sy = (v.videoHeight - size) / 2;
+    ctx.drawImage(v, sx, sy, size, size, 0, 0, 320, 320);
+    onAvatarChange(canvas.toDataURL("image/jpeg", 0.85));
+    stopStream();
+    setShowCamera(false);
+  }
+
+  function cancelCamera() {
+    stopStream();
+    setShowCamera(false);
+  }
+
+  async function handleFile(e) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    try {
+      const url = await readFileAsDataUrl(file);
+      onAvatarChange(url);
+    } catch {
+      // ignore
+    }
+  }
+
+  return (
+    <div>
+      <label className="block text-xs text-slate-400 mb-1">{label}</label>
+      <div className="flex gap-2">
+        <button type="button" onClick={() => fileRef.current?.click()} className="flex-1 text-xs bg-slate-700 hover:bg-slate-600 text-slate-200 rounded-lg px-3 py-2 transition-colors">
+          Choose Photo
+        </button>
+        <button type="button" onClick={openCamera} className="flex-1 text-xs bg-slate-700 hover:bg-slate-600 text-slate-200 rounded-lg px-3 py-2 transition-colors">
+          Open Camera
+        </button>
+        <input ref={fileRef} type="file" accept="image/*" onChange={handleFile} className="hidden" />
+      </div>
+      {cameraError && <p className="text-rose-400 text-xs mt-1">{cameraError}</p>}
+      {showCamera && (
+        <div className="mt-2 rounded-xl overflow-hidden border border-slate-600 bg-black">
+          <video ref={videoRef} autoPlay playsInline muted className="w-full aspect-square object-cover" />
+          <div className="flex gap-2 p-2 bg-slate-800">
+            <button type="button" onClick={capture} className="flex-1 text-xs bg-indigo-500 hover:bg-indigo-600 text-white rounded-lg py-2 font-semibold">Capture</button>
+            <button type="button" onClick={cancelCamera} className="flex-1 text-xs bg-slate-600 hover:bg-slate-500 text-white rounded-lg py-2">Cancel</button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -153,13 +255,7 @@ function ProfilePicker({ profiles, onSelectProfile, onCreateProfile }) {
               className="w-full bg-slate-800/60 border border-slate-700 rounded-xl px-4 py-3 text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/50"
             />
 
-            <label className="block text-xs text-slate-400">Profile photo</label>
-            <input
-              type="file"
-              accept="image/*"
-              onChange={handleAvatarChange}
-              className="w-full text-xs text-slate-300 file:mr-3 file:rounded-lg file:border-0 file:bg-slate-700 file:px-3 file:py-2 file:text-slate-200 hover:file:bg-slate-600"
-            />
+            <AvatarPicker avatar={draftAvatar} onAvatarChange={(url) => { setDraftAvatar(url); setError(""); }} />
 
             {draftName && (
               <div className="flex items-center gap-3 bg-slate-900/40 rounded-xl px-3 py-2 border border-slate-700/50">
@@ -447,12 +543,13 @@ function App() {
   const [showResult, setShowResult] = useState(false);
   const [editingEntry, setEditingEntry] = useState(null);
   const [pendingDeleteEntry, setPendingDeleteEntry] = useState(null);
-  const [editForm, setEditForm] = useState({ weight: "", height: "", age: "", gender: "", unit: "metric" });
-  const [reminder, setReminder] = useState(() => {
+  const [editForm, setEditForm] = useState({ weight: "", height: "", age: "", gender: "", unit: "metric", notes: "" });
+  const [notes, setNotes] = useState("");
+  const [remindersByProfile, setRemindersByProfile] = useState(() => {
     try {
-      return JSON.parse(localStorage.getItem("bmi_reminder") || '{"enabled":false,"time":"20:00","lastNotified":""}');
+      return JSON.parse(localStorage.getItem("bmi_reminders_by_profile") || "{}");
     } catch {
-      return { enabled: false, time: "20:00", lastNotified: "" };
+      return {};
     }
   });
   const [showReminderBanner, setShowReminderBanner] = useState(false);
@@ -464,6 +561,14 @@ function App() {
       return {};
     }
   });
+  const [showProfileModal, setShowProfileModal] = useState(false);
+  const [notesByEntry, setNotesByEntry] = useState(() => {
+    try {
+      return JSON.parse(localStorage.getItem("bmi_notes") || "{}");
+    } catch {
+      return {};
+    }
+  });
 
   const activeProfile = useMemo(
     () => profiles.find((p) => p.id === activeProfileId) || null,
@@ -471,6 +576,19 @@ function App() {
   );
 
   const targetWeight = activeProfileId ? targetWeightsByProfile[activeProfileId] || "" : "";
+
+  const reminder = useMemo(() => {
+    if (!activeProfileId) return { enabled: false, time: "20:00", lastNotified: "" };
+    return remindersByProfile[activeProfileId] || { enabled: false, time: "20:00", lastNotified: "" };
+  }, [activeProfileId, remindersByProfile]);
+
+  const setReminder = useCallback((updater) => {
+    setRemindersByProfile((prev) => {
+      const current = prev[activeProfileId] || { enabled: false, time: "20:00", lastNotified: "" };
+      const next = typeof updater === "function" ? updater(current) : updater;
+      return { ...prev, [activeProfileId]: next };
+    });
+  }, [activeProfileId]);
 
   const sortedHistory = useMemo(
     () => [...history].sort((a, b) => new Date(a.date) - new Date(b.date)),
@@ -583,8 +701,12 @@ function App() {
   }, [monoMode]);
 
   useEffect(() => {
-    localStorage.setItem("bmi_reminder", JSON.stringify(reminder));
-  }, [reminder]);
+    localStorage.setItem("bmi_reminders_by_profile", JSON.stringify(remindersByProfile));
+  }, [remindersByProfile]);
+
+  useEffect(() => {
+    localStorage.setItem("bmi_notes", JSON.stringify(notesByEntry));
+  }, [notesByEntry]);
 
   useEffect(() => {
     if (activeProfile?.name) {
@@ -731,9 +853,10 @@ function App() {
         setError(res.error);
       } else {
         setResult(res);
+        const entryId = `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
         const entry = {
           date: new Date().toISOString(),
-          entry_id: `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+          entry_id: entryId,
           profile_id: activeProfileId,
           name: profileName,
           gender: gender,
@@ -743,9 +866,14 @@ function App() {
           weight: w,
           height: h,
           unit: unit,
+          notes: notes.trim(),
         };
         try {
           await invoke("save_history", { entry });
+          if (notes.trim()) {
+            setNotesByEntry((prev) => ({ ...prev, [entryId]: notes.trim() }));
+          }
+          setNotes("");
           await loadHistory(activeProfileId, profileName);
         } catch {
           // silent
@@ -810,12 +938,13 @@ function App() {
       age: entry.age ? String(entry.age) : "",
       gender: entry.gender || "",
       unit: entry.unit || "metric",
+      notes: entry.notes || notesByEntry[entry.entry_id] || "",
     });
   }
 
   function cancelEditEntry() {
     setEditingEntry(null);
-    setEditForm({ weight: "", height: "", age: "", gender: "", unit: "metric" });
+    setEditForm({ weight: "", height: "", age: "", gender: "", unit: "metric", notes: "" });
   }
 
   async function saveEditedEntry() {
@@ -854,9 +983,13 @@ function App() {
         unit: editForm.unit,
         bmi: res.bmi,
         category: res.category,
+        notes: editForm.notes.trim(),
       };
 
       await invoke("update_history_entry", { updatedEntry });
+      if (editForm.notes.trim()) {
+        setNotesByEntry((prev) => ({ ...prev, [editingEntry.entry_id]: editForm.notes.trim() }));
+      }
       await loadHistory(activeProfileId, activeProfile?.name);
       setResult(res);
       cancelEditEntry();
@@ -917,8 +1050,135 @@ function App() {
     setWeight("");
     setHeight("");
     setAge("");
+    setNotes("");
     setResult(null);
     setError("");
+  }
+
+  function updateActiveProfileAvatar(newAvatar) {
+    setProfiles((prev) =>
+      prev.map((p) => (p.id === activeProfileId ? { ...p, avatar: newAvatar } : p))
+    );
+  }
+
+  function generatePdfReport() {
+    const profileName = activeProfile?.name || "User";
+    const entries = [...sortedHistory];
+    if (entries.length === 0) return;
+
+    const pageW = 595;
+    const pageH = 842;
+    const margin = 40;
+    const colW = (pageW - margin * 2) / 6;
+
+    // Build raw PDF manually (no dependencies)
+    let objects = [];
+    let xrefOffsets = [];
+    let content = "";
+    let yPos = pageH - margin;
+
+    function addText(text, x, y, size = 10, color = "0 0 0") {
+      // Escape PDF special chars
+      const escaped = text.replace(/\\/g, "\\\\").replace(/\(/g, "\\(").replace(/\)/g, "\\)");
+      content += `BT /${size > 14 ? "F2" : "F1"} ${size} Tf ${color} rg ${x} ${y} Td (${escaped}) Tj ET\n`;
+    }
+
+    function addLine(x1, y1, x2, y2, color = "0.8 0.8 0.8") {
+      content += `${color} RG 0.5 w ${x1} ${y1} m ${x2} ${y2} l S\n`;
+    }
+
+    // Title
+    addText(`BMI Report - ${profileName}`, margin, yPos, 18, "0.2 0.2 0.6");
+    yPos -= 20;
+    addText(`Generated: ${new Date().toLocaleDateString()}`, margin, yPos, 9, "0.5 0.5 0.5");
+    yPos -= 8;
+    addText(`Total entries: ${entries.length}`, margin, yPos, 9, "0.5 0.5 0.5");
+    yPos -= 25;
+
+    // Summary stats
+    if (entries.length >= 2) {
+      const first = entries[0];
+      const last = entries[entries.length - 1];
+      const wChange = (last.weight - first.weight).toFixed(1);
+      const bChange = (last.bmi - first.bmi).toFixed(1);
+      addText("Summary", margin, yPos, 13, "0.2 0.2 0.5");
+      yPos -= 18;
+      addText(`Starting weight: ${first.weight} | Current weight: ${last.weight} | Change: ${wChange}`, margin, yPos, 9);
+      yPos -= 14;
+      addText(`Starting BMI: ${first.bmi} (${first.category}) | Current BMI: ${last.bmi} (${last.category}) | Change: ${bChange}`, margin, yPos, 9);
+      yPos -= 25;
+    }
+
+    // Table header
+    addLine(margin, yPos + 4, pageW - margin, yPos + 4, "0.3 0.3 0.6");
+    addText("Date", margin, yPos - 8, 9, "0.3 0.3 0.3");
+    addText("Weight", margin + colW, yPos - 8, 9, "0.3 0.3 0.3");
+    addText("Height", margin + colW * 2, yPos - 8, 9, "0.3 0.3 0.3");
+    addText("BMI", margin + colW * 3, yPos - 8, 9, "0.3 0.3 0.3");
+    addText("Category", margin + colW * 4, yPos - 8, 9, "0.3 0.3 0.3");
+    addText("Notes", margin + colW * 5, yPos - 8, 9, "0.3 0.3 0.3");
+    yPos -= 14;
+    addLine(margin, yPos, pageW - margin, yPos, "0.7 0.7 0.7");
+    yPos -= 14;
+
+    // Rows
+    for (const entry of entries) {
+      if (yPos < margin + 40) {
+        // simple page break: just stop
+        addText("... (continued)", margin, yPos, 8, "0.5 0.5 0.5");
+        break;
+      }
+      const d = new Date(entry.date);
+      const dateStr = d.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "2-digit" });
+      const catColor = entry.category === "Normal" ? "0 0.5 0.2" : entry.category === "Obese" ? "0.8 0.2 0.2" : entry.category === "Overweight" ? "0.7 0.5 0" : "0.2 0.4 0.8";
+      const entryNotes = entry.notes || notesByEntry[entry.entry_id] || "";
+      const truncNotes = entryNotes.length > 20 ? entryNotes.slice(0, 20) + "..." : entryNotes;
+
+      addText(dateStr, margin, yPos, 8);
+      addText(`${entry.weight}`, margin + colW, yPos, 8);
+      addText(`${entry.height}`, margin + colW * 2, yPos, 8);
+      addText(`${entry.bmi}`, margin + colW * 3, yPos, 8, catColor);
+      addText(entry.category, margin + colW * 4, yPos, 8, catColor);
+      addText(truncNotes, margin + colW * 5, yPos, 7, "0.4 0.4 0.4");
+      yPos -= 16;
+      addLine(margin, yPos + 6, pageW - margin, yPos + 6, "0.92 0.92 0.92");
+    }
+
+    // Build PDF
+    let pdf = "%PDF-1.4\n";
+    // Object 1: Catalog
+    xrefOffsets.push(pdf.length);
+    pdf += "1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n";
+    // Object 2: Pages
+    xrefOffsets.push(pdf.length);
+    pdf += "2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n";
+    // Object 3: Page
+    xrefOffsets.push(pdf.length);
+    pdf += `3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ${pageW} ${pageH}] /Contents 4 0 R /Resources << /Font << /F1 5 0 R /F2 6 0 R >> >> >>\nendobj\n`;
+    // Object 4: Content stream
+    xrefOffsets.push(pdf.length);
+    pdf += `4 0 obj\n<< /Length ${content.length} >>\nstream\n${content}endstream\nendobj\n`;
+    // Object 5: Font (Helvetica)
+    xrefOffsets.push(pdf.length);
+    pdf += "5 0 obj\n<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>\nendobj\n";
+    // Object 6: Font Bold
+    xrefOffsets.push(pdf.length);
+    pdf += "6 0 obj\n<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold >>\nendobj\n";
+
+    const xrefPos = pdf.length;
+    pdf += `xref\n0 ${xrefOffsets.length + 1}\n0000000000 65535 f \n`;
+    for (const off of xrefOffsets) {
+      pdf += `${String(off).padStart(10, "0")} 00000 n \n`;
+    }
+    pdf += `trailer\n<< /Size ${xrefOffsets.length + 1} /Root 1 0 R >>\nstartxref\n${xrefPos}\n%%EOF`;
+
+    const blob = new Blob([pdf], { type: "application/pdf" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `bmi-report-${profileName.replace(/\s+/g, "-").toLowerCase()}.pdf`;
+    a.click();
+    URL.revokeObjectURL(url);
   }
 
   const nutrition = useMemo(() => {
@@ -982,13 +1242,17 @@ function App() {
         {/* Header with gradient text */}
         <div className="mb-6">
           <div className="flex items-center justify-between mb-4 bg-slate-800/40 backdrop-blur-xl border border-slate-700/50 rounded-xl px-3 py-2.5">
-            <div className="flex items-center gap-3 min-w-0">
+            <button
+              type="button"
+              onClick={() => setShowProfileModal(true)}
+              className="flex items-center gap-3 min-w-0 hover:opacity-80 transition-opacity"
+            >
               <ProfileAvatar profile={activeProfile} className="w-10 h-10" />
-              <div className="min-w-0">
+              <div className="min-w-0 text-left">
                 <p className="text-xs text-slate-500">Active profile</p>
                 <p className="text-sm text-slate-200 font-semibold truncate">{activeProfile.name}</p>
               </div>
-            </div>
+            </button>
             <button
               type="button"
               onClick={switchProfile}
@@ -1180,6 +1444,22 @@ function App() {
                 <span>{error}</span>
               </div>
             )}
+
+            {/* Notes */}
+            <div>
+              <label className="block text-slate-300 text-sm font-medium mb-1.5 flex items-center gap-2">
+                <span className="text-amber-400">📝</span>
+                <span>Notes <span className="text-slate-500 font-normal">(optional)</span></span>
+              </label>
+              <input
+                type="text"
+                value={notes}
+                onChange={(e) => setNotes(e.target.value)}
+                placeholder="e.g. started running, ate less sugar..."
+                maxLength={200}
+                className={inputClass}
+              />
+            </div>
 
             <div className="flex gap-3 pt-4">
               <button
@@ -1539,6 +1819,14 @@ function App() {
                         <option value="other">Other</option>
                       </select>
                     </div>
+                    <input
+                      type="text"
+                      value={editForm.notes}
+                      onChange={(e) => setEditForm((prev) => ({ ...prev, notes: e.target.value }))}
+                      placeholder="Notes (optional)"
+                      maxLength={200}
+                      className="w-full bg-slate-800/70 border border-slate-700 rounded-lg px-2 py-1.5 text-xs text-slate-200"
+                    />
                     <div className="flex gap-2 pt-1">
                       <button
                         type="button"
@@ -1586,8 +1874,8 @@ function App() {
                         <div className="min-w-0 text-left">
                           <span className={`text-sm font-semibold ${getCategoryColor(entry.category)}`}>{entry.bmi}</span>
                           <span className="text-slate-400 text-xs ml-2">{entry.category}</span>
-                          {entry.name && (
-                            <span className="text-slate-500 text-xs ml-2 inline-block truncate max-w-[120px] align-middle">- {entry.name}</span>
+                          {(entry.notes || notesByEntry[entry.entry_id]) && (
+                            <p className="text-slate-500 text-[10px] truncate max-w-[180px] mt-0.5 italic">📝 {entry.notes || notesByEntry[entry.entry_id]}</p>
                           )}
                         </div>
                       </div>
@@ -1624,6 +1912,15 @@ function App() {
                 >
                   Clear History
                 </button>
+                {history.length > 0 && (
+                  <button
+                    type="button"
+                    onClick={generatePdfReport}
+                    className="w-full mt-1 text-xs text-indigo-300 hover:text-indigo-200 transition-colors py-2 hover:bg-indigo-500/10 rounded-lg border border-indigo-500/20"
+                  >
+                    📄 Export PDF Report
+                  </button>
+                )}
               </div>
             )}
           </div>
@@ -1652,6 +1949,58 @@ function App() {
                 Delete
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {showProfileModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
+          <div className="w-full max-w-sm rounded-2xl border border-slate-700/70 bg-slate-900/95 backdrop-blur-xl p-5 shadow-2xl">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-sm font-semibold text-white">Profile</h3>
+              <button type="button" onClick={() => setShowProfileModal(false)} className="text-slate-400 hover:text-white text-lg leading-none">&times;</button>
+            </div>
+            <div className="flex flex-col items-center gap-3 mb-4">
+              <ProfileAvatar profile={activeProfile} className="w-20 h-20 text-2xl" />
+              <p className="text-lg text-white font-semibold">{activeProfile.name}</p>
+              {history.length > 0 && (
+                <div className="grid grid-cols-3 gap-2 w-full text-center">
+                  <div className="bg-slate-800/50 rounded-lg p-2 border border-slate-700/40">
+                    <p className="text-[10px] text-slate-500 uppercase">Entries</p>
+                    <p className="text-sm font-semibold text-slate-100">{history.length}</p>
+                  </div>
+                  <div className="bg-slate-800/50 rounded-lg p-2 border border-slate-700/40">
+                    <p className="text-[10px] text-slate-500 uppercase">Streak</p>
+                    <p className="text-sm font-semibold text-amber-300">{streakDays}d</p>
+                  </div>
+                  <div className="bg-slate-800/50 rounded-lg p-2 border border-slate-700/40">
+                    <p className="text-[10px] text-slate-500 uppercase">Latest</p>
+                    <p className="text-sm font-semibold text-slate-100">{sortedHistory.length > 0 ? sortedHistory[sortedHistory.length - 1].bmi : "-"}</p>
+                  </div>
+                </div>
+              )}
+            </div>
+            <AvatarPicker
+              avatar={activeProfile.avatar}
+              onAvatarChange={(url) => { updateActiveProfileAvatar(url); }}
+              label="Change profile photo"
+            />
+            {activeProfile.avatar && (
+              <button
+                type="button"
+                onClick={() => updateActiveProfileAvatar("")}
+                className="w-full mt-2 text-xs text-rose-400/70 hover:text-rose-400 transition-colors py-1.5 hover:bg-rose-500/10 rounded-lg"
+              >
+                Remove photo
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={() => setShowProfileModal(false)}
+              className="w-full mt-3 text-xs bg-slate-700 hover:bg-slate-600 text-slate-200 rounded-lg px-3 py-2 transition-colors"
+            >
+              Close
+            </button>
           </div>
         </div>
       )}
